@@ -1,25 +1,239 @@
 name: Tests
-on: [push, pull_request]
+on:
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Go test -run regex (empty = full suite)'
+        required: false
+        type: string
+        default: ''
 jobs:
   amd64:
-    uses: ./.github/workflows/tests-template.yaml
-    with:
-      arch: amd64
-      runs-on: ubuntu-latest
-      targets: "['linux-test-smoke',
-        'linux-integration-1-cpu',
-        'linux-integration-2-cpu',
-        'linux-integration-4-cpu',
-        'linux-unit-4-cpu-race',
-        'linux-386-unit-1-cpu',
-        'all-build']"
+    # inlined from tests-template.yaml (a reusable-workflow call job cannot carry timeout-minutes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+        - linux-test-smoke
+        - linux-integration-1-cpu
+        - linux-integration-2-cpu
+        - linux-integration-4-cpu
+        - linux-unit-4-cpu-race
+        - linux-386-unit-1-cpu
+        - all-build
+    steps:
+      - uses: actions/checkout@v2
+      - id: goversion
+        run: echo "goversion=$(cat .go-version)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v2
+        with:
+          go-version: ${{ steps.goversion.outputs.goversion }}
+      - run: date
+      - env:
+          TARGET: ${{ matrix.target }}
+          TEST_FILTER: ${{ inputs.test-filter }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${TEST_FILTER}" ]; then export TESTCASE="${TEST_FILTER}"; fi
+
+          echo "${TARGET}"
+          case "${TARGET}" in
+            linux-test-smoke)
+              GOARCH=amd64 CPU=4 RACE='false' make test-smoke
+              ;;
+            linux-integration-1-cpu)
+              make install-gofail
+              GOARCH=amd64 CPU=1 RACE='false' FAILPOINTS='true' make test-integration
+              ;;
+            linux-integration-2-cpu)
+              make install-gofail
+              GOARCH=amd64 CPU=2 RACE='false' FAILPOINTS='true' make test-integration
+              ;;
+            linux-integration-4-cpu)
+              make install-gofail
+              GOARCH=amd64 CPU=4 RACE='false' FAILPOINTS='true' make test-integration
+              ;;
+            linux-unit-4-cpu-race)
+              GOARCH=amd64 RACE='true' CPU='4' GO_TEST_FLAGS='-p=2' make test-unit
+              ;;
+            linux-386-unit-1-cpu)
+              GOOS=linux GOARCH=386 CPU=1 GO_TEST_FLAGS='-p=4' make test-unit
+              ;;
+            all-build)
+              GOARCH=amd64 PASSES='build' ./test.sh
+              GOARCH=386 PASSES='build' ./test.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOOS=darwin GOARCH=amd64 ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOOS=darwin GOARCH=arm64 ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOOS=windows GOARCH=amd64 ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOARCH=arm ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOARCH=arm64 ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOARCH=ppc64le ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOARCH=s390x ./build.sh
+              ;;
+            *)
+              echo "Failed to find target"
+              exit 1
+              ;;
+          esac
   arm64:
-    uses: ./.github/workflows/tests-template.yaml
-    with:
-      arch: arm64
-      runs-on: actuated-arm64-8cpu-32gb
-      targets: "['linux-test-smoke',
-        'linux-integration-1-cpu',
-        'linux-integration-2-cpu',
-        'linux-integration-4-cpu',
-        'linux-unit-4-cpu-race']"
+    # inlined from tests-template.yaml (a reusable-workflow call job cannot carry timeout-minutes)
+    runs-on: actuated-arm64-8cpu-32gb
+    timeout-minutes: 45
+    # this is to prevent arm64 jobs from running at forked projects
+    if: github.repository == 'etcd-io/etcd'
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+        - linux-test-smoke
+        - linux-integration-1-cpu
+        - linux-integration-2-cpu
+        - linux-integration-4-cpu
+        - linux-unit-4-cpu-race
+    steps:
+      - uses: actions/checkout@v2
+      - id: goversion
+        run: echo "goversion=$(cat .go-version)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v2
+        with:
+          go-version: ${{ steps.goversion.outputs.goversion }}
+      - run: date
+      - env:
+          TARGET: ${{ matrix.target }}
+          TEST_FILTER: ${{ inputs.test-filter }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${TEST_FILTER}" ]; then export TESTCASE="${TEST_FILTER}"; fi
+
+          echo "${TARGET}"
+          case "${TARGET}" in
+            linux-test-smoke)
+              GOARCH=arm64 CPU=4 RACE='false' make test-smoke
+              ;;
+            linux-integration-1-cpu)
+              make install-gofail
+              GOARCH=arm64 CPU=1 RACE='false' FAILPOINTS='true' make test-integration
+              ;;
+            linux-integration-2-cpu)
+              make install-gofail
+              GOARCH=arm64 CPU=2 RACE='false' FAILPOINTS='true' make test-integration
+              ;;
+            linux-integration-4-cpu)
+              make install-gofail
+              GOARCH=arm64 CPU=4 RACE='false' FAILPOINTS='true' make test-integration
+              ;;
+            linux-unit-4-cpu-race)
+              GOARCH=arm64 RACE='true' CPU='4' GO_TEST_FLAGS='-p=2' make test-unit
+              ;;
+            linux-386-unit-1-cpu)
+              GOOS=linux GOARCH=386 CPU=1 GO_TEST_FLAGS='-p=4' make test-unit
+              ;;
+            all-build)
+              GOARCH=amd64 PASSES='build' ./test.sh
+              GOARCH=386 PASSES='build' ./test.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOOS=darwin GOARCH=amd64 ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOOS=darwin GOARCH=arm64 ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOOS=windows GOARCH=amd64 ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOARCH=arm ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOARCH=arm64 ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOARCH=ppc64le ./build.sh
+              GO_BUILD_FLAGS='-v -mod=readonly' GOARCH=s390x ./build.sh
+              ;;
+            *)
+              echo "Failed to find target"
+              exit 1
+              ;;
+          esac
+  module-zip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+      - name: build module zip for go.etcd.io/etcd/client/pkg/v3
+        run: |
+          set -euo pipefail
+          SRC="${GITHUB_WORKSPACE}/client/pkg"
+          HELPER="${RUNNER_TEMP}/zipper"
+          OUT="${RUNNER_TEMP}/out"
+          mkdir -p "${HELPER}" "${OUT}"
+          cat > "${HELPER}/go.mod" <<'GOMOD'
+          module zipper
+
+          go 1.22
+
+          require golang.org/x/mod v0.24.0
+          GOMOD
+          cat > "${HELPER}/main.go" <<'GOSRC'
+          package main
+
+          import (
+                  "os"
+
+                  "golang.org/x/mod/module"
+                  "golang.org/x/mod/zip"
+          )
+
+          func main() {
+                  f, err := os.Create(os.Args[1])
+                  if err != nil {
+                      panic(err)
+                  }
+                  defer f.Close()
+                  mv := module.Version{Path: "go.etcd.io/etcd/client/pkg/v3", Version: "v3.5.16"}
+                  if err := zip.CreateFromDir(f, mv, os.Args[2]); err != nil {
+                      panic(err)
+                  }
+          }
+          GOSRC
+          cd "${HELPER}"
+          go mod tidy
+          go run . "${OUT}/v3.5.16.zip" "${SRC}"
+          unzip -l "${OUT}/v3.5.16.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v3.5.16.zip
+          path: ${{ runner.temp }}/out/v3.5.16.zip
+          if-no-files-found: error
+  test-xplat:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Go 1.22 linker emits no LC_UUID; macos-14 dyld still accepts such test binaries.
+          - os: macos-14
+            skip: ''
+          # Windows-incompatible tests (file locking, SO_REUSEPORT, POSIX error strings,
+          # buffered write timeouts) are skipped on the command line because every file
+          # under client/pkg ships in the module zip.
+          - os: windows-latest
+            skip: 'TestFileBufReader|TestLockAndUnlock|TestPurgeFileHoldingLockFile|TestNewListenerWithSocketOpts|TestTLSInfoNonexist|TestReadWriteTimeoutDialer|TestWriteReadTimeoutListener'
+    steps:
+      - uses: actions/checkout@v2
+      - id: goversion
+        shell: bash
+        run: echo "goversion=$(cat .go-version)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.goversion.outputs.goversion }}
+      - name: go test client/pkg
+        shell: bash
+        working-directory: client/pkg
+        env:
+          SKIP_REGEX: ${{ matrix.skip }}
+          TEST_FILTER: ${{ inputs.test-filter }}
+        run: |
+          set -euo pipefail
+          go version
+          args=(-v)
+          if [ -n "${SKIP_REGEX}" ]; then args+=("-skip=${SKIP_REGEX}"); fi
+          if [ -n "${TEST_FILTER}" ]; then args+=("-run=${TEST_FILTER}"); fi
+          go test "${args[@]}" ./...
